@@ -1,2 +1,2 @@
 # scorepi
-Score Epidemic Prediction Intervals
+Score epidemic prediction intervals
