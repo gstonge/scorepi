@@ -8,7 +8,7 @@ Author: Guillaume St-Onge <stongeg1@gmail.com>
 
 import numpy as np
 
-def interval_score(observation,lower,upper,interval_range):
+def interval_score(observation, lower, upper, interval_range, specify_range_out=False):
     """interval_score.
 
     Parameters
@@ -19,7 +19,7 @@ def interval_score(observation,lower,upper,interval_range):
         Prediction for the lower quantile.
     upper : array_like
         Prediction for the upper quantile.
-    interval_range : float
+    interval_range : int
         Percentage covered by the interval. For instance, if lower and upper correspond to 0.05 and 0.95
         quantiles, interval_range is 90.
 
@@ -45,14 +45,20 @@ def interval_score(observation,lower,upper,interval_range):
 
     alpha = 1-interval_range/100 #prediction probability outside the interval
     dispersion = u - l
-    underprediction = (2/alpha) * (l-obs) * (obs < lower)
+    underprediction = (2/alpha) * (l-obs) * (obs < l)
     overprediction = (2/alpha) * (obs-u) * (obs > u)
     score = dispersion + underprediction + overprediction
-
-    return {'interval_score': score,
-            'dispersion': dispersion,
-            'underprediction': underprediction,
-            'overprediction': overprediction}
+    if not specify_range_out:
+        out = {'interval_score': score,
+               'dispersion': dispersion,
+               'underprediction': underprediction,
+               'overprediction': overprediction}
+    else:
+        out = {f'{interval_range}_interval_score': score,
+               f'{interval_range}_dispersion': dispersion,
+               f'{interval_range}_underprediction': underprediction,
+               f'{interval_range}_overprediction': overprediction}
+    return out
 
 def maximum_absolute_error(observation,prediction):
     """maximum_absolute_error.
@@ -76,8 +82,9 @@ def maximum_absolute_error(observation,prediction):
     """
     if len(observation) != len(prediction):
         raise ValueError("vector shape mismatch")
+    obs,pred = np.array(observation),np.array(prediction)
 
-    return np.abs(observation-prediction)
+    return np.abs(obs-pred)
 
 def coverage(observation,lower,upper):
     """coverage. Output the fraction of observations within lower and upper.
