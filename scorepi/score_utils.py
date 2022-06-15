@@ -4,6 +4,12 @@
 Score functions that are applied on a dataframe.
 
 Author: Guillaume St-Onge <stongeg1@gmail.com>
+
+NOTE: right now, dataframe must be filtered for a single location?.
+
+IDEA: create an observations/predictions class inheriting from DataFrame where t_col, quantile_col,
+      loc_col,value_col, etc. are all specified --- create an interface agnostic to the underlying
+      nature of the observations/predictions
 """
 
 import numpy as np
@@ -11,7 +17,10 @@ import pandas as pd
 from functools import reduce
 from .score_functions import *
 
+
+
 def all_interval_scores_from_df(observations, predictions, interval_ranges=[10,20,30,40,50,60,70,80,90,95,98],
+                                loc_col_observation='location',loc_col_prediction='location',
                                 t_col_observation='date', t_col_prediction='target_end_date',
                                 value_col_observation='value', value_col_prediction='value',
                                 quantile_col='quantile', **kwargs):
@@ -47,11 +56,16 @@ def all_interval_scores_from_df(observations, predictions, interval_ranges=[10,2
     ------
     ValueError:
         If the timestamp columns does not match for observations and predictions.
+        If the median is not calculated.
     """
     #verify that the t_col (usually dates) matches between observations and predictions
-    if not np.all(observations[t_col_observation].to_numpy() == \
+    if not np.array_equal(observations[t_col_observation].drop_duplicates().to_numpy(),
                   predictions[t_col_prediction].drop_duplicates().to_numpy()):
         raise ValueError("Values for the timestamp do not match")
+    #median must be calculated
+    if len(predictions[np.isclose(predictions[quantile_col],0.5)]) == 0:
+        raise ValueError("The median must be calculated")
+
     median = predictions[np.isclose(predictions[quantile_col],0.5)][value_col_prediction].to_numpy()
     obs = observations[value_col_observation].to_numpy()
     median_absolute_error = np.abs(obs-median)
@@ -70,9 +84,10 @@ def all_interval_scores_from_df(observations, predictions, interval_ranges=[10,2
         alpha = 1-(q_upp-q_low)
         wis += 0.5 * alpha * score[f'{interval_range}_interval_score']
         score[t_col_observation] = list(observations[t_col_observation])
+        score[loc_col_observation] = list(observations[loc_col_observation])
         df_list.append(pd.DataFrame(score))
     wis /= (len(interval_ranges) + 1/2)
-    df = reduce(lambda x, y: pd.merge(x, y, on = 'date'), df_list)
+    df = reduce(lambda x, y: pd.merge(x, y, on = [t_col_observation,loc_col_observation]), df_list)
     df['wis'] = wis
     df['median_absolute_error'] = median_absolute_error
     df['median_absolute_error_underprediction'] = median_absolute_error_underprediction
@@ -80,6 +95,7 @@ def all_interval_scores_from_df(observations, predictions, interval_ranges=[10,2
     return df
 
 def maximum_absolute_error_from_df(observations, predictions,
+                                   loc_col_observation='location',loc_col_prediction='location',
                                    t_col_observation='date', t_col_prediction='target_end_date',
                                    value_col_observation='value', value_col_prediction='value',
                                    type_col='type', **kwargs):
@@ -103,12 +119,13 @@ def maximum_absolute_error_from_df(observations, predictions,
     type_col : str
         Column label for the type of prediction.
     """
-    if not np.all(observations[t_col_observation].to_numpy() == \
+    if not np.array_equal(observations[t_col_observation].drop_duplicates().to_numpy(),
                   predictions[t_col_prediction].drop_duplicates().to_numpy()):
         raise ValueError("Values for the timestamp do not match")
     pred = predictions[predictions[type_col] == 'point']
     mae = maximum_absolute_error(observations[value_col_observation],pred[value_col_prediction])
-    df = pd.DataFrame({'mae': mae, t_col_observation: observations[t_col_observation]})
+    df = pd.DataFrame({'mae': mae, t_col_observation: observations[t_col_observation],
+                       loc_col_observation: observations[loc_col_observation]})
     return df
 
 
@@ -149,7 +166,7 @@ def all_coverages_from_df(observations, predictions, interval_ranges=[10,20,30,4
         If the timestamp columns does not match for observations and predictions.
     """
     #verify that the t_col (usually dates) matches between observations and predictions
-    if not np.all(observations[t_col_observation].to_numpy() == \
+    if not np.array_equal(observations[t_col_observation].drop_duplicates().to_numpy(),
                   predictions[t_col_prediction].drop_duplicates().to_numpy()):
         raise ValueError("Values for the timestamp do not match")
     out = dict()
@@ -164,6 +181,7 @@ def all_coverages_from_df(observations, predictions, interval_ranges=[10,20,30,4
     return out
 
 def all_scores_from_df(observations, predictions, interval_ranges=[10,20,30,40,50,60,70,80,90,95,98],
+                       loc_col_observation='location',loc_col_prediction='location',
                        t_col_observation='date', t_col_prediction='target_end_date',
                        mismatched_allowed=False, **kwargs):
     """all_scores_from_df.
@@ -200,11 +218,11 @@ def all_scores_from_df(observations, predictions, interval_ranges=[10,20,30,40,5
     ValueError:
         If the timestamp columns does not match for observations and predictions.
     """
-    if (not np.all(observations[t_col_observation].to_numpy() == \
-                  predictions[t_col_prediction].drop_duplicates().to_numpy()))\
-       and mismatched_allowed:
-        pred = predictions[predictions[t_col_prediction].isin(observations[t_col_observation])]
-        obs = observations[observations[t_col_observation].isin(predictions[t_col_prediction])]
+    if mismatched_allowed:
+        pred = predictions[predictions[t_col_prediction].isin(observations[t_col_observation]) &
+                           predictions[loc_col_prediction].isin(observations[loc_col_observation])]
+        obs = observations[observations[t_col_observation].isin(predictions[t_col_prediction]) &
+                           observations[loc_col_observation].isin(predictions[loc_col_prediction])]
     else:
         pred = predictions
         obs = observations
@@ -230,7 +248,7 @@ def all_scores_from_df(observations, predictions, interval_ranges=[10,20,30,40,5
     d['mae_total'] = mae_total
     d['mae_mean'] = mae_mean
 
-    #calculate percentage of wis is due to dispersion,underprediction,overprediction
+    #calculate percentage of wis due to dispersion,underprediction,overprediction
     #===============================================================================
 
     #interval range 0
