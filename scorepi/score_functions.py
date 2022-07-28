@@ -60,31 +60,31 @@ def interval_score(observation, lower, upper, interval_range, specify_range_out=
                f'{interval_range}_overprediction': overprediction}
     return out
 
-def maximum_absolute_error(observation,prediction):
-    """maximum_absolute_error.
+# def absolute_error(observation,prediction):
+    # """absolute_error.
 
-    Parameters
-    ----------
-    observation : array_like
-        Vector of observations.
-    prediction : array_like
-        Vector of predictions.
+    # Parameters
+    # ----------
+    # observation : array_like
+        # Vector of observations.
+    # prediction : array_like
+        # Vector of predictions.
 
-    Returns
-    -------
-    mae : ndarray
-        Maximum absolute error between observations and predictions.
+    # Returns
+    # -------
+    # ae : ndarray
+        # Absolute error between observations and predictions.
 
-    Raises
-    ------
-    ValueError:
-        If the observation and prediction vectors are not the same length.
-    """
-    if len(observation) != len(prediction):
-        raise ValueError("vector shape mismatch")
-    obs,pred = np.array(observation),np.array(prediction)
+    # Raises
+    # ------
+    # ValueError:
+        # If the observation and prediction vectors are not the same length.
+    # """
+    # if len(observation) != len(prediction):
+        # raise ValueError("vector shape mismatch")
+    # obs,pred = np.array(observation),np.array(prediction)
 
-    return np.abs(obs-pred)
+    # return np.abs(obs-pred)
 
 def coverage(observation,lower,upper):
     """coverage. Output the fraction of observations within lower and upper.
