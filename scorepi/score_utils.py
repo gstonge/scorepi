@@ -14,6 +14,7 @@ import pandas as pd
 from functools import reduce
 from .score_functions import *
 from .base_classes import *
+from itertools import product
 
 
 def all_timestamped_scores_from_df(observations, predictions,
@@ -44,9 +45,8 @@ def all_timestamped_scores_from_df(observations, predictions,
         If the point estimate is not included.
     """
     #verify that the independent variable columns (usually dates and location) matches
-    if not np.array_equal(np.unique(observations.get_x(),axis=0),
-                          np.unique(predictions.get_x(),axis=0)):
-        raise ValueError("Values for the independent columns do not match")
+    # if not np.array_equal(observations.get_unique_x(), predictions.get_unique_x()):
+        # raise ValueError("Values for the independent columns do not match")
     #median and point estimate must be calculated
     if len(predictions.get_quantile(0.5)) == 0:
         raise ValueError("The median must be calculated")
@@ -66,9 +66,9 @@ def all_timestamped_scores_from_df(observations, predictions,
     df_list = []
     for interval_range in interval_ranges:
         q_low,q_upp = 0.5-interval_range/200,0.5+interval_range/200
-        if np.any(predictions.get_quantile(q_low) >= predictions.get_quantile(q_upp)):
-            print(predictions.get_quantile(q_low), predictions.get_quantile(q_upp))
-            raise RuntimeError("something went wrong")
+        if np.any(predictions.get_quantile(q_low) > predictions.get_quantile(q_upp)):
+            print(predictions.get_quantile(q_upp) - predictions.get_quantile(q_low))
+            raise RuntimeError("something went wrong, upper quantile bigger than lower quantile")
         score = interval_score(obs,
                                predictions.get_quantile(q_low),
                                predictions.get_quantile(q_upp),
@@ -232,9 +232,8 @@ def all_coverages_from_df(observations, predictions, interval_ranges=[10,20,30,4
         If the independent columns do not match for observations and predictions.
     """
     #verify that the independent variable columns (usually dates and location) matches
-    if not np.array_equal(np.unique(observations.get_x(),axis=0),
-                          np.unique(predictions.get_x(),axis=0)):
-        raise ValueError("Values for the independent columns do not match")
+    # if not np.array_equal(observations.get_unique_x(), predictions.get_unique_x()):
+        # raise ValueError("Values for the independent columns do not match")
 
     out = dict()
     for interval_range in interval_ranges:
@@ -281,16 +280,60 @@ def all_scores_from_df(observations, predictions, interval_ranges=[10,20,30,40,5
     ValueError:
         If the timestamp columns does not match for observations and predictions.
     """
-    if mismatched_allowed:
-        #get the intersection of datasets
-        for col in observations.ind_cols:
-            pred = predictions.filter(predictions[col].isin(observations[col]))
-            obs = observations.filter(observations[col].isin(predictions[col]))
+    pred = predictions.copy()
+    obs = observations.copy()
 
+    if len(obs.other_ind_cols) == 0:
+        #get the intersection of predictions and observations
+        if mismatched_allowed:
+            pred,obs = intersec(pred,obs)
+        d,df = all_scores_core(obs, pred, interval_ranges, **kwargs)
+
+    #get score independently for each other independent col of the predictions
     else:
-        pred = predictions
-        obs = observations
+        d_list = []
+        df_list = []
+        for x in product(*(_get_unique_values_iter(pred,col) for col in pred.other_ind_cols)):
+            pred_ = pred.copy()
+            obs_ = obs.copy()
+            #filter predictions and observations
+            for col,val in x:
+                pred_ = pred_.filter(pred_[col] == val)
+                if col in obs_.other_ind_cols:
+                    obs_ = obs_.filter(obs_[col] == val)
+            #get the intersection of predictions and observations
+            if mismatched_allowed:
+                pred_,obs_ = intersec(pred_,obs_)
+            #calculate scores and identify them by independent col values
+            d_,df_ = all_scores_core(obs_, pred_, interval_ranges, **kwargs)
+            for col,val in x:
+                d_[col] = val
+                df_[col] = val
+            d_list.append(d_)
+            df_list.append(df_)
+        #combine scores
+        d = pd.DataFrame(d_list)
+        df = pd.concat(df_list)
 
+    return d,df
+
+def intersec(predictions,observations):
+        pred = predictions.copy()
+        obs = observations.copy()
+        for col in observations.ind_cols:
+            pred = pred.filter(pred[col].isin(obs[col]))
+            obs = obs.filter(obs[col].isin(pred[col]))
+        return pred,obs
+
+
+
+
+def _get_unique_values_iter(df,col):
+    for val in df[col].unique():
+        yield col,val
+
+
+def all_scores_core(obs, pred, interval_ranges, **kwargs):
     #get all timestamped scores
     df = all_timestamped_scores_from_df(obs, pred, **kwargs)
 
@@ -316,8 +359,11 @@ def all_scores_from_df(observations, predictions, interval_ranges=[10,20,30,40,5
 
     #interval range 0
     for part in ["underprediction", "overprediction"]:
-        d[f"0_{part}_wis_fraction"] = 0.5*df[f"median_absolute_error_{part}"].sum()\
-                / ((len(interval_ranges) + 1/2) * wis_total)
+        if wis_total > 0:
+            d[f"0_{part}_wis_fraction"] = 0.5*df[f"median_absolute_error_{part}"].sum()\
+                    / ((len(interval_ranges) + 1/2) * wis_total)
+        else:
+            d[f"0_{part}_wis_fraction"] = np.nan
 
     #other interval range
     for interval_range in interval_ranges:
@@ -325,7 +371,10 @@ def all_scores_from_df(observations, predictions, interval_ranges=[10,20,30,40,5
         norm = (len(interval_ranges) + 1/2) / (0.5 * alpha)
         for part in ["dispersion", "underprediction", "overprediction"]:
             contribution = df[f"{interval_range}_{part}"].sum()
-            d[f"{interval_range}_{part}_wis_fraction"] = contribution / (norm*wis_total)
+            if wis_total > 0:
+                d[f"{interval_range}_{part}_wis_fraction"] = contribution / (norm*wis_total)
+            else:
+                d[f"{interval_range}_{part}_wis_fraction"] = np.nan
 
     #aggregate over intervals
     for part in ["dispersion", "underprediction", "overprediction"]:

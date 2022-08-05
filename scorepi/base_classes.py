@@ -43,9 +43,15 @@ class Observations(pd.DataFrame):
         #sort values in the DataFrame based on time and other independent columns
         self.ind_cols = [t_col] + other_ind_cols
         self.sort_values(by=self.ind_cols,inplace=True)
+        self.reset_index(drop=True,inplace=True)
 
     def filter(self,bool_df):
         new_obs = self[bool_df].copy().reset_index(drop=True)
+        return type(self)(new_obs,value_col=self.value_col,t_col=self.t_col,
+                          other_ind_cols=self.other_ind_cols)
+
+    def copy(self):
+        new_obs = super().copy()
         return type(self)(new_obs,value_col=self.value_col,t_col=self.t_col,
                           other_ind_cols=self.other_ind_cols)
 
@@ -57,6 +63,11 @@ class Observations(pd.DataFrame):
 
     def get_x(self):
         return self[self.ind_cols].to_numpy()
+
+    def get_unique_x(self):
+        #convert to str such that it can be compared
+        return np.unique(np.array((self[self.ind_cols]).to_numpy(), dtype=str), axis=0)
+
 
 
 class Predictions(pd.DataFrame):
@@ -103,9 +114,15 @@ class Predictions(pd.DataFrame):
         #sort values in the DataFrame based on time and other independent columns
         self.ind_cols = [t_col] + other_ind_cols
         self.sort_values(by=self.ind_cols,inplace=True)
+        self.reset_index(drop=True,inplace=True)
 
     def filter(self,bool_df):
         new_pred = self[bool_df].copy().reset_index(drop=True)
+        return type(self)(new_pred,value_col=self.value_col,quantile_col=self.quantile_col,
+                          type_col=self.type_col,t_col=self.t_col,other_ind_cols=self.other_ind_cols)
+
+    def copy(self):
+        new_pred = super().copy()
         return type(self)(new_pred,value_col=self.value_col,quantile_col=self.quantile_col,
                           type_col=self.type_col,t_col=self.t_col,other_ind_cols=self.other_ind_cols)
 
@@ -114,6 +131,11 @@ class Predictions(pd.DataFrame):
 
     def get_x(self):
         return self[self.ind_cols].to_numpy()
+
+    def get_unique_x(self):
+        #convert to str such that it can be compared
+        return np.unique(np.array((self[self.ind_cols]).to_numpy(), dtype=str), axis=0)
+
 
     def get_point(self):
         point = self[self[self.type_col] == 'point'][self.value_col].to_numpy()
