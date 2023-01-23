@@ -103,12 +103,17 @@ class Predictions(pd.DataFrame):
         try:
             self[value_col]
             self[quantile_col]
-            self[type_col]
             self[t_col]
             if other_ind_cols:
                 self[other_ind_cols]
         except KeyError:
             raise ValueError("Column name mismatch")
+
+        try:
+            self[type_col]
+        except KeyError:
+            #type col not defined, therefore we assume it is only quantiles.
+            self[type_col] = 'quantile'
 
 
         #sort values in the DataFrame based on time and other independent columns
