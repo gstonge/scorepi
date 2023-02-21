@@ -207,13 +207,22 @@ def all_scores_from_df(observations, predictions, interval_ranges=[10,20,30,40,5
 def intersec(predictions,observations):
         pred = predictions.copy()
         obs = observations.copy()
+        pred = pred[pred.groupby("target_end_date").type.transform(lambda x: x.nunique()).ge(2)]
+
         for col in observations.ind_cols:
-            pred = pred.filter(pred[col].isin(obs[col]))
-            obs = obs.filter(obs[col].isin(pred[col]))
-        return pred,obs
-
-
-
+            pred = pred[pred[col].isin(obs[col])]
+            obs = obs[obs[col].isin(pred[col])]
+        pred = Predictions( pred, 
+                            value_col=predictions.value_col, 
+                            quantile_col=predictions.quantile_col, 
+                            type_col=predictions.type_col, 
+                            t_col=predictions.t_col,
+                            other_ind_cols=predictions.other_ind_cols)
+        obs = Observations( obs,
+                            value_col=observations.value_col, 
+                            t_col=observations.t_col, 
+                            other_ind_cols=observations.other_ind_cols)
+        return pred, obs
 
 def _get_unique_values_iter(df,col):
     for val in df[col].unique():
@@ -272,4 +281,3 @@ def all_scores_core(obs, pred, interval_ranges, **kwargs):
         d[f"{part}_wis_fraction"] += d[f"0_{part}_wis_fraction"]
 
     return d,df
-
