@@ -255,11 +255,6 @@ def all_scores_from_df(observations, predictions, interval_ranges=[10,20,30,40,5
 def intersec(predictions,observations):
         pred = predictions.copy()
         obs = observations.copy()
-        
-        # groups the predictions by pred.t_col,
-        # keeping the date if there are more than or equal to 2 unique prediction types 
-        # ("point" and "quantile")
-        pred = pred[pred.groupby(pred.t_col).type.transform(lambda x: x.nunique()).ge(2)]
 
         for col in observations.ind_cols:
             pred = pred[pred[col].isin(obs[col])]
