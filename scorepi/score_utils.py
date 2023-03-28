@@ -57,7 +57,7 @@ def all_timestamped_scores_from_df(observations, predictions,
     point = predictions.get_point()
     obs = observations.get_value()
     point_absolute_error = np.abs(obs-point)
-    point_absolute_percentage_error = (point_absolute_error / obs) * 100
+    point_absolute_percentage_error = np.where(obs==0, np.nan, (point_absolute_error / obs) * 100) # return nan if obs == 0
     median_absolute_error = np.abs(obs-median)
     median_absolute_error_underprediction = np.heaviside(median-obs,0) * median_absolute_error
     median_absolute_error_overprediction = np.heaviside(obs-median,0) * median_absolute_error
@@ -256,7 +256,9 @@ def all_scores_core(obs, pred, interval_ranges, **kwargs):
     d['point_absolute_error_total'] = pae_total
     d['point_absolute_error_mean'] = pae_mean
 
-    mape = df["point_absolute_percentage_error"].mean()
+    # if point_absolute_percentage_error == nan, 
+    # pandas defualt ignores nan when calculating mean
+    mape = df["point_absolute_percentage_error"].mean() 
     d['mean_absolute_percentage_error'] = mape 
 
     #calculate percentage of wis due to dispersion,underprediction,overprediction
