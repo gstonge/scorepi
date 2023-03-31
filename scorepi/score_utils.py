@@ -256,15 +256,15 @@ def intersec(predictions,observations):
         pred = predictions.copy()
         obs = observations.copy()
 
-        for col in observations.ind_cols:
-            pred = pred[pred[col].isin(obs[col])]
-            obs = obs[obs[col].isin(pred[col])]
-
         if pred.type.nunique() > 1:
             # make sure "point" and "quantile" predictions date intersect if both present
             # groups the predictions by pred.t_col, keeping the date if there are more than or 
             # equal to 2 unique prediction types ("point" and "quantile")
             pred = pred[pred.groupby(pred.t_col).type.transform(lambda x: x.nunique()).ge(2)]
+
+        for col in observations.ind_cols:
+            pred = pred[pred[col].isin(obs[col])]
+            obs = obs[obs[col].isin(pred[col])]
 
         pred = Predictions( pred, 
                             value_col=predictions.value_col, 
