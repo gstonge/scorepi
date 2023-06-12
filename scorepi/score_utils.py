@@ -5,6 +5,8 @@ Score functions that are applied on a dataframe.
 
 Author: Guillaume St-Onge <stongeg1@gmail.com>
 
+Last updated: Mar 2023 by Abby Leung <abbyokleung@gmail.com>
+
 NOTE: right now, dataframe must be filtered for a single location?.
 
 """
@@ -41,22 +43,74 @@ def all_timestamped_scores_from_df(observations, predictions,
     ------
     ValueError:
         If the independent columns do not match for observations and predictions.
-        If the median is not calculated.
-        If the point estimate is not included.
+        If the median is not calculated or point estimate not included.
     """
     #verify that the independent variable columns (usually dates and location) matches
     # if not np.array_equal(observations.get_unique_x(), predictions.get_unique_x()):
         # raise ValueError("Values for the independent columns do not match")
     #median and point estimate must be calculated
-    if len(predictions.get_quantile(0.5)) == 0:
-        raise ValueError("The median must be calculated")
-    if len(predictions.get_point()) == 0:
-        raise ValueError("The point estimate must be included")
+    
+    if len(predictions.get_quantile(0.5)) > 0:
+        df = all_interval_timestamped_scores_from_df(observations, predictions, interval_ranges, **kwargs)
+        df = all_point_timestamped_scores_from_df(observations, predictions, df, **kwargs)
+        
+    elif len(predictions.get_point()) > 0:
+        df = pd.DataFrame({col:list(observations[col]) for col in observations.other_ind_cols})
+        df[observations.t_col] = list(observations.get_t())
+        df = all_point_timestamped_scores_from_df(observations, predictions, df, **kwargs)
+    else:
+        raise ValueError("No median or point estimate.")
 
-    median = predictions.get_quantile(0.5)
+    return df
+
+def all_point_timestamped_scores_from_df(observations, predictions, df, **kwargs):
+    """all_point_timestamped_scores_from_df.
+
+    Parameters
+    ----------
+    observations : Observations object
+        Specialized dateframe for the observations across time.
+    predictions : Predictions object
+        Specialized dateframe for the predictions (quantile and point) across time.
+    df : DataFrame 
+        DataFrame containing interval scores or DataFrame containing index and time columns of observation.
+
+    Returns
+    -------
+    df : DataFrame
+        DataFrame containing absolute error and absolute percentage error for each point estimate. 
+    """
     point = predictions.get_point()
     obs = observations.get_value()
     point_absolute_error = np.abs(obs-point)
+    point_absolute_percentage_error = np.where(obs==0, np.nan, (point_absolute_error / obs) * 100) # return nan if obs == 0
+
+    df['point_absolute_error'] = point_absolute_error
+    df['point_absolute_percentage_error'] = point_absolute_percentage_error
+    return df
+
+def all_interval_timestamped_scores_from_df(observations, predictions,
+                                            interval_ranges=[10,20,30,40,50,60,70,80,90,95,98], **kwargs):
+    """all_interval_timestamped_scores_from_df.
+
+    Parameters
+    ----------
+    observations : Observations object
+        Specialized dateframe for the observations across time.
+    predictions : Predictions object
+        Specialized dateframe for the predictions (quantile and point) across time.
+    interval_ranges : list of int
+        Percentage covered by each interval. For instance, if interval_range is 90, this corresponds
+        to the interval for the 0.05 and 0.95 quantiles.
+
+    Returns
+    -------
+    df : DataFrame
+        DataFrame containing the interval score for each interval range across time, but also the dispersion,
+        underprediction and overprediction. Also contains the weighted_interval_score and absolute errors.
+    """
+    median = predictions.get_quantile(0.5)
+    obs = observations.get_value()
     median_absolute_error = np.abs(obs-median)
     median_absolute_error_underprediction = np.heaviside(median-obs,0) * median_absolute_error
     median_absolute_error_overprediction = np.heaviside(obs-median,0) * median_absolute_error
@@ -64,35 +118,29 @@ def all_timestamped_scores_from_df(observations, predictions,
     #calculate wis
     wis = 0.5 * median_absolute_error
     df_list = []
-    if interval_ranges:
-        for interval_range in interval_ranges:
-            q_low,q_upp = 0.5-interval_range/200,0.5+interval_range/200
-            if np.any(predictions.get_quantile(q_low) > predictions.get_quantile(q_upp)):
-                print(predictions.get_quantile(q_upp) - predictions.get_quantile(q_low))
-                raise RuntimeError("something went wrong, upper quantile bigger than lower quantile")
-            score = interval_score(obs,
-                                   predictions.get_quantile(q_low),
-                                   predictions.get_quantile(q_upp),
-                                   interval_range,specify_range_out=True)
-            alpha = 1-(q_upp-q_low)
-            wis += 0.5 * alpha * score[f'{interval_range}_interval_score']
-            score[observations.t_col] = list(observations.get_t())
-            for col in observations.other_ind_cols:
-                score[col] = list(observations[col])
-            df_list.append(pd.DataFrame(score))
-        wis /= (len(interval_ranges) + 1/2)
-        df = reduce(lambda x, y: pd.merge(x, y, on = observations.ind_cols), df_list)
-        df['wis'] = wis
-    else:
-        df = pd.DataFrame({col:list(observations[col]) for col in observations.other_ind_cols})
-        df[observations.t_col] = list(observations.get_t())
+    for interval_range in interval_ranges:
+        q_low,q_upp = 0.5-interval_range/200,0.5+interval_range/200
+        if np.any(predictions.get_quantile(q_low) > predictions.get_quantile(q_upp)):
+            print(predictions.get_quantile(q_upp) - predictions.get_quantile(q_low))
+            raise RuntimeError("something went wrong, upper quantile bigger than lower quantile")
+        score = interval_score(obs,
+                                predictions.get_quantile(q_low),
+                                predictions.get_quantile(q_upp),
+                                interval_range,specify_range_out=True)
+        alpha = 1-(q_upp-q_low)
+        wis += 0.5 * alpha * score[f'{interval_range}_interval_score']
+        score[observations.t_col] = list(observations.get_t())
+        for col in observations.other_ind_cols:
+            score[col] = list(observations[col])
+        df_list.append(pd.DataFrame(score))
+    wis /= (len(interval_ranges) + 1/2)
+    df = reduce(lambda x, y: pd.merge(x, y, on = observations.ind_cols), df_list)
+    df['wis'] = wis
 
-    df['point_absolute_error'] = point_absolute_error
     df['median_absolute_error'] = median_absolute_error
     df['median_absolute_error_underprediction'] = median_absolute_error_underprediction
     df['median_absolute_error_overprediction'] = median_absolute_error_overprediction
     return df
-
 
 def all_coverages_from_df(observations, predictions, interval_ranges=[10,20,30,40,50,60,70,80,90,95,98],
                           **kwargs):
@@ -207,15 +255,17 @@ def all_scores_from_df(observations, predictions, interval_ranges=[10,20,30,40,5
 def intersec(predictions,observations):
         pred = predictions.copy()
         obs = observations.copy()
-        
-        # groups the predictions by pred.t_col,
-        # keeping the date if there are more than or equal to 2 unique prediction types 
-        # ("point" and "quantile")
-        pred = pred[pred.groupby(pred.t_col).type.transform(lambda x: x.nunique()).ge(2)]
+
+        if pred.type.nunique() > 1:
+            # make sure "point" and "quantile" predictions date intersect if both present
+            # groups the predictions by pred.t_col, keeping the date if there are more than or 
+            # equal to 2 unique prediction types ("point" and "quantile")
+            pred = pred[pred.groupby(pred.t_col).type.transform(lambda x: x.nunique()).ge(2)]
 
         for col in observations.ind_cols:
             pred = pred[pred[col].isin(obs[col])]
             obs = obs[obs[col].isin(pred[col])]
+
         pred = Predictions( pred, 
                             value_col=predictions.value_col, 
                             quantile_col=predictions.quantile_col, 
@@ -237,51 +287,62 @@ def all_scores_core(obs, pred, interval_ranges, **kwargs):
     #get all timestamped scores
     df = all_timestamped_scores_from_df(obs, pred, **kwargs)
 
-    #get all aggregated scores
-    d = all_coverages_from_df(obs,pred)
+    if len(pred.get_quantile(0.5)) > 0:
+        #get all aggregated scores
+        d = all_coverages_from_df(obs,pred)
 
-    #report number of timestamp that match between observations and predictions
-    d["nb_t_match"] = df["wis"].count()
+        #report number of timestamp that match between observations and predictions
+        d["nb_t_match"] = df["wis"].count()
 
-    #aggregate wis and absolute error
-    wis_total = df["wis"].sum()
-    wis_mean = df["wis"].mean()
-    d['wis_total'] = wis_total
-    d['wis_mean'] = wis_mean
+        #aggregate wis and absolute error
+        wis_total = df["wis"].sum()
+        wis_mean = df["wis"].mean()
+        d['wis_total'] = wis_total
+        d['wis_mean'] = wis_mean
+
+        #calculate percentage of wis due to dispersion,underprediction,overprediction
+        #===============================================================================
+
+        #interval range 0
+        for part in ["underprediction", "overprediction"]:
+            if wis_total > 0:
+                d[f"0_{part}_wis_fraction"] = 0.5*df[f"median_absolute_error_{part}"].sum()\
+                        / ((len(interval_ranges) + 1/2) * wis_total)
+            else:
+                d[f"0_{part}_wis_fraction"] = np.nan
+
+        #other interval range
+        for interval_range in interval_ranges:
+            alpha = 1 - interval_range/100
+            norm = (len(interval_ranges) + 1/2) / (0.5 * alpha)
+            for part in ["dispersion", "underprediction", "overprediction"]:
+                contribution = df[f"{interval_range}_{part}"].sum()
+                if wis_total > 0:
+                    d[f"{interval_range}_{part}_wis_fraction"] = contribution / (norm*wis_total)
+                else:
+                    d[f"{interval_range}_{part}_wis_fraction"] = np.nan
+
+        #aggregate over intervals
+        for part in ["dispersion", "underprediction", "overprediction"]:
+            d[f"{part}_wis_fraction"] = sum([d[f"{interval_range}_{part}_wis_fraction"]\
+                                            for interval_range in interval_ranges])
+        #add missing part from 0 interval
+        for part in ["underprediction", "overprediction"]:
+            d[f"{part}_wis_fraction"] += d[f"0_{part}_wis_fraction"]
+            
+    elif len(pred.get_point()) > 0:
+        d = dict()
+    else:
+        raise ValueError("No median or point estimate.")
 
     pae_total = df["point_absolute_error"].sum()
     pae_mean = df["point_absolute_error"].mean()
     d['point_absolute_error_total'] = pae_total
     d['point_absolute_error_mean'] = pae_mean
 
-    #calculate percentage of wis due to dispersion,underprediction,overprediction
-    #===============================================================================
-
-    #interval range 0
-    for part in ["underprediction", "overprediction"]:
-        if wis_total > 0:
-            d[f"0_{part}_wis_fraction"] = 0.5*df[f"median_absolute_error_{part}"].sum()\
-                    / ((len(interval_ranges) + 1/2) * wis_total)
-        else:
-            d[f"0_{part}_wis_fraction"] = np.nan
-
-    #other interval range
-    for interval_range in interval_ranges:
-        alpha = 1 - interval_range/100
-        norm = (len(interval_ranges) + 1/2) / (0.5 * alpha)
-        for part in ["dispersion", "underprediction", "overprediction"]:
-            contribution = df[f"{interval_range}_{part}"].sum()
-            if wis_total > 0:
-                d[f"{interval_range}_{part}_wis_fraction"] = contribution / (norm*wis_total)
-            else:
-                d[f"{interval_range}_{part}_wis_fraction"] = np.nan
-
-    #aggregate over intervals
-    for part in ["dispersion", "underprediction", "overprediction"]:
-        d[f"{part}_wis_fraction"] = sum([d[f"{interval_range}_{part}_wis_fraction"]\
-                                         for interval_range in interval_ranges])
-    #add missing part from 0 interval
-    for part in ["underprediction", "overprediction"]:
-        d[f"{part}_wis_fraction"] += d[f"0_{part}_wis_fraction"]
+    # if point_absolute_percentage_error == nan, 
+    # pandas defualt ignores nan when calculating mean
+    mape = df["point_absolute_percentage_error"].mean() 
+    d['mean_absolute_percentage_error'] = mape 
 
     return d,df
