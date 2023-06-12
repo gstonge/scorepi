@@ -287,17 +287,53 @@ def all_scores_core(obs, pred, interval_ranges, **kwargs):
     #get all timestamped scores
     df = all_timestamped_scores_from_df(obs, pred, **kwargs)
 
-    #get all aggregated scores
-    d = all_coverages_from_df(obs,pred)
+    if len(pred.get_quantile(0.5)) > 0:
+        #get all aggregated scores
+        d = all_coverages_from_df(obs,pred)
 
-    #report number of timestamp that match between observations and predictions
-    d["nb_t_match"] = df["wis"].count()
+        #report number of timestamp that match between observations and predictions
+        d["nb_t_match"] = df["wis"].count()
 
-    #aggregate wis and absolute error
-    wis_total = df["wis"].sum()
-    wis_mean = df["wis"].mean()
-    d['wis_total'] = wis_total
-    d['wis_mean'] = wis_mean
+        #aggregate wis and absolute error
+        wis_total = df["wis"].sum()
+        wis_mean = df["wis"].mean()
+        d['wis_total'] = wis_total
+        d['wis_mean'] = wis_mean
+
+        #calculate percentage of wis due to dispersion,underprediction,overprediction
+        #===============================================================================
+
+        #interval range 0
+        for part in ["underprediction", "overprediction"]:
+            if wis_total > 0:
+                d[f"0_{part}_wis_fraction"] = 0.5*df[f"median_absolute_error_{part}"].sum()\
+                        / ((len(interval_ranges) + 1/2) * wis_total)
+            else:
+                d[f"0_{part}_wis_fraction"] = np.nan
+
+        #other interval range
+        for interval_range in interval_ranges:
+            alpha = 1 - interval_range/100
+            norm = (len(interval_ranges) + 1/2) / (0.5 * alpha)
+            for part in ["dispersion", "underprediction", "overprediction"]:
+                contribution = df[f"{interval_range}_{part}"].sum()
+                if wis_total > 0:
+                    d[f"{interval_range}_{part}_wis_fraction"] = contribution / (norm*wis_total)
+                else:
+                    d[f"{interval_range}_{part}_wis_fraction"] = np.nan
+
+        #aggregate over intervals
+        for part in ["dispersion", "underprediction", "overprediction"]:
+            d[f"{part}_wis_fraction"] = sum([d[f"{interval_range}_{part}_wis_fraction"]\
+                                            for interval_range in interval_ranges])
+        #add missing part from 0 interval
+        for part in ["underprediction", "overprediction"]:
+            d[f"{part}_wis_fraction"] += d[f"0_{part}_wis_fraction"]
+            
+    elif len(pred.get_point()) > 0:
+        d = dict()
+    else:
+        raise ValueError("No median or point estimate.")
 
     pae_total = df["point_absolute_error"].sum()
     pae_mean = df["point_absolute_error"].mean()
@@ -308,35 +344,5 @@ def all_scores_core(obs, pred, interval_ranges, **kwargs):
     # pandas defualt ignores nan when calculating mean
     mape = df["point_absolute_percentage_error"].mean() 
     d['mean_absolute_percentage_error'] = mape 
-
-    #calculate percentage of wis due to dispersion,underprediction,overprediction
-    #===============================================================================
-
-    #interval range 0
-    for part in ["underprediction", "overprediction"]:
-        if wis_total > 0:
-            d[f"0_{part}_wis_fraction"] = 0.5*df[f"median_absolute_error_{part}"].sum()\
-                    / ((len(interval_ranges) + 1/2) * wis_total)
-        else:
-            d[f"0_{part}_wis_fraction"] = np.nan
-
-    #other interval range
-    for interval_range in interval_ranges:
-        alpha = 1 - interval_range/100
-        norm = (len(interval_ranges) + 1/2) / (0.5 * alpha)
-        for part in ["dispersion", "underprediction", "overprediction"]:
-            contribution = df[f"{interval_range}_{part}"].sum()
-            if wis_total > 0:
-                d[f"{interval_range}_{part}_wis_fraction"] = contribution / (norm*wis_total)
-            else:
-                d[f"{interval_range}_{part}_wis_fraction"] = np.nan
-
-    #aggregate over intervals
-    for part in ["dispersion", "underprediction", "overprediction"]:
-        d[f"{part}_wis_fraction"] = sum([d[f"{interval_range}_{part}_wis_fraction"]\
-                                         for interval_range in interval_ranges])
-    #add missing part from 0 interval
-    for part in ["underprediction", "overprediction"]:
-        d[f"{part}_wis_fraction"] += d[f"0_{part}_wis_fraction"]
 
     return d,df
