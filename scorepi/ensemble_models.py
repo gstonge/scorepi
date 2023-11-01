@@ -30,7 +30,7 @@ def median_ensemble(predictions_list,**kwargs):
     all_predictions = pd.concat(predictions_list)
     #get median for quantiles
     ensemble_predictions = all_predictions.groupby(
-        by=ind_cols + [type_col,quantile_col],dropna=False).median().reset_index()
+        by=ind_cols + [type_col,quantile_col],dropna=False).median(numeric_only=True).reset_index()
 
     ensemble_predictions = Predictions(ensemble_predictions,value_col=value_col,quantile_col=quantile_col,
                                        type_col=type_col,t_col=t_col,other_ind_cols=other_ind_cols)
